@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <style>
+        body {
+            background-color: darkgoldenrod;
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: row;
+            gap: 10px;
+        }
+
+        #debug {
+            display: flex;
+            padding: 10px;
+            background: #ccc;
+            border: solid 2px white;
+            flex: 1;
+            height: 600px;
+            width: 800px;
+        }
+
+        #gameDiv {
+            display: flex;
+            flex: 1;
+            background: white;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="gameDiv">
+        <canvas id="game"></canvas>
+    </div>
+    <div id="debug">
+
+    </div>
+    <script>
+        var canvas = document.getElementById("game");
+        var ctx = canvas.getContext("2d");
+
+        canvas.width = 800;
+        canvas.height = 600;
+
+        var now, elapsed;
+        var fpsInterval = 10;
+        var then = Date.now();
+
+        var gameState = {
+            player: {
+                x: canvas.clientWidth / 2,
+                y: canvas.clientHeight / 2,
+                w: 10,
+                h: 10,
+                speed: 5,
+                keysPressed: [],
+                projectiles: [],
+                projectileSpeed: 10,
+                health: 100,
+                kills: 0,
+                reloadTime: 1000,
+                lastProjectile: Date.now(),
+            },
+            enemies: [],
+            enemySpawnMultiplier: 1,
+        };
+
+        function startGame() {
+            setInterval(() => gameState.enemySpawnMultiplier += 1, 30000);
+            update();
+        }
+
+        function update() {
+            requestAnimationFrame(update);
+            if (gameState.player.health > 0) {
+                gameLoop();
+            } else {
+                ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+
+                ctx.fillStyle = "black";
+                ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+                ctx.fillStyle = "yellow";
+                ctx.font = "32px sans-serif";
+                ctx.fillText(`Game Over, you destroyed ${gameState.player.kills} enemy ships.`, 100, 100);
+            }
+        }
+
+        function gameLoop() {
+            now = Date.now();
+            elapsed = now - then;
+
+            if (elapsed > fpsInterval) {
+                then = now - (elapsed % fpsInterval);
+                movePlayer();
+                movePlayerProjectiles();
+                if (Math.random() < (0.005 * gameState.enemySpawnMultiplier)) {
+                    spawnEnemy();
+                }
+                moveEnemies();
+                draw();
+
+                // debug
+                var debugDiv = document.getElementById("debug");
+                debugDiv.innerHTML = "<pre>" + JSON.stringify(gameState, null, '\t') + "</pre>";
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+
+            // background
+            ctx.fillStyle = "black";
+            ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+
+            // player projectiles
+            ctx.fillStyle = "lime";
+            gameState.player.projectiles.forEach(projectile => {
+                ctx.fillRect(projectile.x, projectile.y, projectile.w, projectile.h);
+            });
+
+            // enemies
+            ctx.fillStyle = "red";
+            gameState.enemies.forEach(enemy => {
+                ctx.fillRect(enemy.x, enemy.y, enemy.w, enemy.h);
+            });
+
+            // player
+            ctx.fillStyle = "white";
+            ctx.fillRect(gameState.player.x, gameState.player.y, gameState.player.w, gameState.player.h);
+
+            ctx.fillStyle = "red";
+            ctx.fillRect(10, 10, 200, 10);
+            ctx.fillStyle = "lime";
+            ctx.fillRect(10, 10, gameState.player.health / 100 * 200, 10);
+        }
+
+        function movePlayer() {
+            if (gameState.player.keysPressed.includes("w")) gameState.player.y -= gameState.player.speed;
+            if (gameState.player.keysPressed.includes("a")) gameState.player.x -= gameState.player.speed;
+            if (gameState.player.keysPressed.includes("s")) gameState.player.y += gameState.player.speed;
+            if (gameState.player.keysPressed.includes("d")) gameState.player.x += gameState.player.speed;
+        }
+
+        function spawnPlayerProjectile(dirX, dirY) {
+            var projectile = {
+                x: gameState.player.x,
+                y: gameState.player.y,
+                speed: gameState.player.projectileSpeed,
+                dirX: gameState.player.x - dirX,
+                dirY: gameState.player.y - dirY,
+                w: 3,
+                h: 3
+            };
+            gameState.player.projectiles.push(projectile);
+        }
+
+        function movePlayerProjectiles() {
+            gameState.player.projectiles.forEach((proj, idx) => {
+                var magnitude = Math.sqrt((proj.dirX * proj.dirX) + (proj.dirY * proj.dirY));
+                proj.x -= (proj.dirX / magnitude) * proj.speed;
+                proj.y -= (proj.dirY / magnitude) * proj.speed;
+
+                if (proj.x > canvas.clientWidth || proj.x < 0 || proj.y > canvas.clientHeight || proj.y < 0)
+                    gameState.player.projectiles.splice(idx, 1);
+            });
+        }
+
+        function spawnEnemy() {
+            var axis = Math.random() <= 0.5 ? "y" : "x";
+            gameState.enemies.push({
+                x: axis == "y" ? Math.random() < 0.5 ? 0 : canvas.clientWidth : Math.floor(Math.random() * canvas.clientWidth),
+                y: axis == "x" ? Math.random() < 0.5 ? 0 : canvas.clientHeight  : Math.floor(Math.random() * canvas.clientHeight),
+                speed: 2,
+                w: 15,
+                h: 15,
+                dmg: 100
+            });
+        }
+
+        function moveEnemies() {
+            gameState.enemies.forEach((enemy, idx) => {
+                var magnitude = Math.sqrt(((gameState.player.x - enemy.x) * (gameState.player.x - enemy.x)) + ((gameState.player.y - enemy.y) * (gameState.player.y - enemy.y)));
+                enemy.x += ((gameState.player.x - enemy.x) / magnitude) * enemy.speed;
+                enemy.y += ((gameState.player.y - enemy.y) / magnitude) * enemy.speed;
+
+                if (doesCollide(gameState.player.x, gameState.player.y, gameState.player.w, gameState.player.h, enemy.x, enemy.y, enemy.w, enemy.h)) {
+                    gameState.enemies.splice(idx, 1);
+                    gameState.player.health -= enemy.dmg;
+                }
+
+                gameState.player.projectiles.forEach((proj, pidx) => {
+                    if (doesCollide(enemy.x, enemy.y, enemy.w, enemy.h, proj.x, proj.y, proj.w, proj.h)) {
+                        gameState.enemies.splice(idx, 1);
+                        gameState.player.projectiles.splice(pidx, 1);
+                        gameState.player.kills += 1;
+                    }
+                });
+
+            });
+        }
+
+        function doesCollide(x1, y1, w1, h1, x2, y2, w2, h2) {
+            return x1 + w1 >= x2 &&
+                x2 + w2 >= x1 &&
+                y1 + h1 >= y2 &&
+                y2 + h2 >= y1;
+        }
+
+        // function spawnReloadUpgrade() {
+        //     if (Math.random() < 0.001) {
+        //         gameState.
+        //     }
+        // }
+
+        window.addEventListener("keydown", (e) => {
+            if (["w", "a", "s", "d"].includes(e.key) && !(gameState.player.keysPressed.includes(e.key))) {
+                gameState.player.keysPressed.push(e.key);
+            }
+        });
+
+        window.addEventListener("keyup", (e) => {
+            if (["w", "a", "s", "d"].includes(e.key)) {
+                gameState.player.keysPressed = gameState.player.keysPressed.filter(k => k !== e.key);
+            }
+        });
+
+        window.addEventListener("mousedown", (e) => {
+            var rect = canvas.getBoundingClientRect();
+            var x = e.clientX - rect.left;
+            var y = e.clientY - rect.top;
+
+            if (e.button == 0 && Date.now() - gameState.player.lastProjectile > gameState.player.reloadTime) {
+                spawnPlayerProjectile(x, y);
+                gameState.player.lastProjectile = Date.now();
+            }
+        });
+
+        startGame();
+    </script>
+</body>
+
+</html>
